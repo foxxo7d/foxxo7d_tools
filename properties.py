@@ -45,20 +45,17 @@ def assign_properties(rig, skeleton):
     for pbone in rig.pose.bones:
         dereference_bone = skeleton.get(pbone.name)
         if dereference_bone:
-            print('dereference: ', dereference_bone)
             pbone_position = rest_pose['pose'].get(dereference_bone)
             props = orientations.get(dereference_bone)
-            pbone.DazAltName = dereference_bone
+            pbone['DazAltName'] = dereference_bone
             if props:
                 for key in props.keys():
                     pbone.bone[key] = props[key]
             if pbone_position:
-                pbone.DazRotMode = pbone_position[2]
+                pbone['DazRotMode'] = pbone_position[2]
             if genesis_altnames.get(dereference_bone):
-                pbone.DazAltName = genesis_altnames.get(dereference_bone)
+                pbone['DazAltName'] = genesis_altnames.get(dereference_bone)
                 print(pbone.name, 'to ', genesis_altnames.get(dereference_bone))
-            else:
-                print(pbone.name, 'to ', dereference_bone)
 
 
 @Operator(label='Copy Bone AltNames')
@@ -66,7 +63,7 @@ def copy_bone_altnames(self, context):
     rig = context.selected_objects[0]
     if is_rigify(rig):
         assign_properties(rig, open_normalized_path(
-            './data/genesis8_to_rigify2.json'))
+            './data/genesis8_to_rigify2.json', invert_keys=True))
     elif is_metsrig(rig):
         assign_properties(rig, open_normalized_path(
             './data/genesis3-metsrig.json'))
