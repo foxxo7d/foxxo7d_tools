@@ -122,9 +122,8 @@ def get_suffix_name(bname):
     return None
 
 
-def distance_vec(point1: Vector, point2: Vector) -> float:
-    """Calculate distance between two points."""
-    return (point2 - point1).length
+def midpoint(p1, p2):
+    return p1 + (p2-p1)/2
 
 def bone_constraint(arm, bn, ctype, strgt, tspc=None,
     mixmode=None, usex=None, usey=None, usez=None ):

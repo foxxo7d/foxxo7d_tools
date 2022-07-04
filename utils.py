@@ -210,3 +210,12 @@ def set_mode(mode):
     
 def get_bone(rig, bone_name):
     return get_rig(rig).edit_bones.get(bone_name)
+
+def get_pbone(rig, bone_name):
+    return rig.pose.bones.get(bone_name)
+
+def get_updated_ebone(bone_name):
+    return bpy.context.object.data.edit_bones.get(bone_name)
+
+def get_updated_pbone(bone_name):
+    return bpy.context.object.pose.bones.get(bone_name)
