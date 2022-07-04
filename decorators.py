@@ -1,7 +1,5 @@
 import bpy
 from easydict import EasyDict as edict
-# from contextvars import copy_context
-# import os
 import inspect
 from functools import wraps
 from .utils import snake_case
@@ -45,41 +43,3 @@ def Operator(label='', props=dict()):
         all_operators.append(operator.bl_idname)
         return operator
     return decorator
-
-# class Test2(bpy.types.Operator):
-#     def __init__(self, function):
-#         self.function = function
-#     def __call__(self, *args, **kwargs):
- 
-#         # We can add some code
-#         # before function call
- 
-#         self.function(*args, **kwargs)
- 
-#         # We can also add some code
-#         # after function call.
-
-# def Operator(execute=None, name=None, label=None, props=dict()):
-#     def wrapper(self, context):
-#         execute(self, context)
-#         return {'FINISHED'}
-#     if execute is None and name is None:
-#         _name = list(props.keys())[0]
-#         name = snake_case(_name)
-#     elif execute:
-#         name = snake_case(execute.__name__)
-
-#     properties = {
-#         "bl_idname": "foxxo." + (name).lower().replace('/', ''),
-#         "bl_label": label or name,
-#         "bl_options": {'REGISTER', 'UNDO'},
-#         "execute": wrapper
-#     }
-
-#     for prop in props.keys():
-#         properties[prop] = props[prop]
-
-#     operator = type('FOXXO_OT_' + name.capitalize().replace('/', ''),
-#                     (bpy.types.Operator, ), properties)
-
-#     return operator

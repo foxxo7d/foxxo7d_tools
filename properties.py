@@ -84,7 +84,7 @@ def change_bone_property(rig, key, values, skeleton):
             setattr(pbone, key, values.get(dereference_bone))
 
 @Operator()
-def remove_unnecessary_properties(context):
+def remove_unnecessary_properties(self, context):
     rig = get_rig(context.selected_objects[0])
 
     keys = list(rig.keys())
@@ -93,4 +93,5 @@ def remove_unnecessary_properties(context):
     for key in keys:
         for string in drivers:
             if string in key:
+                print('removing: ', key)
                 rig.pop(key)

@@ -11,7 +11,7 @@ def morph_options(self, context):
     if hasattr(obj, 'DazMorphCats'):
         return [(utils.camel_case(cat.name), cat.name, '', idx) for (idx, cat) in enumerate(obj.DazMorphCats)]
     else:
-        return [('No Morphs Detected', 'No Morphs Detected', '', 0)]
+        return [('No_Morphs_Detected', 'No Morphs Detected', '', 0)]
 
 bpy.types.WindowManager.daz_morph_categories = bpy.props.EnumProperty(items=morph_options)
 
@@ -59,6 +59,23 @@ class Misc(View3DPanel, bpy.types.Panel):
     bl_label = "Miscellaneous"
 
     def draw(self, context):
+        layout = self.layout
+        layout.operator('foxxo.fuzzy_match_bones')
+        layout.operator('foxxo.command_line_render')
+        self.render()
+
+class Nodes(View3DPanel, bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_Nodes_Panel"
+    bl_label = "Nodes"
+
+    def draw(self, context):
+        self.render()
+
+class Drivers(View3DPanel, bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_Drivers_Panel"
+    bl_label = "Drivers"
+
+    def draw(self, context):
         self.render()
 
 class Bones(View3DPanel, bpy.types.Panel):
@@ -68,28 +85,47 @@ class Bones(View3DPanel, bpy.types.Panel):
     def draw(self, context):
         self.render()
 
-
 class Shapekeys(View3DPanel, bpy.types.Panel):
     bl_idname = "VIEW3D_PT_Shapekeys_Panel"
     bl_label = "Shapekeys"
 
     def draw(self, context):
+        layout = self.layout
+        layout.operator('daz.load_favo_morphs')
+        layout.operator('daz.transfer_shapekeys')
+        layout.operator('daz.convert_morphs_to_shapekeys')
+        layout.operator('daz.remove_standard_morphs')
         self.render()
 
-
+class Pose(View3DPanel, bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_Pose_Panel"
+    bl_label = "Pose"
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.operator('daz.import_pose', text='Import Pose')
+        layout.operator('daz.clear_pose', text='Clear Pose')
+    
 class PANEL_PT_ShapekeysCollapsePanel(View3DPanel, bpy.types.Panel):
     bl_parent_id = "VIEW3D_PT_Shapekeys_Panel"
     bl_label = "Active Shapekeys"
 
     def draw(self, context):
         layout = self.layout
-        if context.object is not None and hasattr(context.object.data, 'shape_keys'):
-            shapekeys = context.object.data.shape_keys
-            if (hasattr(shapekeys, 'key_blocks')):
-                key = shapekeys.key_blocks
-                if (key is not None and len(list(key)) > 0):
-                    layout.template_list("UI_UL_ShapkeysListTemplate", "", shapekeys,
-                                         "key_blocks", context.object, "active_shape_key_index", rows=3)
+        if context.object is not None:
+            obj = context.object
+            mesh = None
+            if obj.type == 'ARMATURE':
+                mesh = utils.get_mesh(obj)
+            elif obj.type == 'MESH':
+                mesh = obj
+            if hasattr(mesh, 'data'):
+                shapekeys = mesh.data.shape_keys
+                if (hasattr(shapekeys, 'key_blocks')):
+                    key = shapekeys.key_blocks
+                    if (key is not None and len(list(key)) > 0):
+                        layout.template_list("UI_UL_ShapkeysListTemplate", "", shapekeys,
+                                            "key_blocks", context.object, "active_shape_key_index", rows=3)
 
 
 class PANEL_PT_DazCustomMorphs(View3DPanel, bpy.types.Panel):
@@ -223,12 +259,12 @@ class Materials(View3DPanel, bpy.types.Panel):
 #         layout.prop(settings, 'ignore_nodes', text="Ignore Nodes")
 #         layout.prop(settings, 'ignore_textures', text="Ignore Textures")
 
-class Commandline(View3DPanel, bpy.types.Panel):
-    bl_idname = "VIEW3D_PT_commandline_panel"
-    bl_label = "Command Line Render"
+# class Commandline(View3DPanel, bpy.types.Panel):
+#     bl_idname = "VIEW3D_PT_commandline_panel"
+#     bl_label = "Command Line Render"
 
-    def draw(self, context):
-        self.render()
+#     def draw(self, context):
+#         self.render()
 
 
 class Rigging(View3DPanel, bpy.types.Panel):

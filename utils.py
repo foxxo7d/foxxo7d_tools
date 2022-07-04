@@ -219,3 +219,6 @@ def get_updated_ebone(bone_name):
 
 def get_updated_pbone(bone_name):
     return bpy.context.object.pose.bones.get(bone_name)
+
+def pack(arr):
+    return list(zip(arr))
