@@ -1,23 +1,44 @@
 import bpy
-
+import os
+from bpy_extras.io_utils import ImportHelper
+from copy import deepcopy
 from . import utils
-
 from .decorators import operators
+from .misc import import_model
+
+class OpenFileBrowser(bpy.types.Operator, ImportHelper):
+    bl_idname = "foxxo.open_file_browser"
+    bl_label = "Browse"
+    
+    filter_glob: bpy.props.StringProperty(
+        default='*.duf',
+        options={'HIDDEN'}
+    )
+
+    def execute(self, context):
+        """Do something with the selected file(s)."""
+
+        filename,_ = os.path.splitext(self.filepath)
+        
+        print('Selected file:', self.filepath)
+        print('File name:', filename)
+        context.scene.foxxo_properties.scene = self.filepath
+        import_model(self, context)
+        
+        return {'FINISHED'}
+
 
 def morph_options(self, context):
     obj = context.selected_objects[0]
     if obj.type == 'MESH':
         obj = obj.find_armature()
     if hasattr(obj, 'DazMorphCats'):
-        return [(utils.camel_case(cat.name), cat.name, '', idx) for (idx, cat) in enumerate(obj.DazMorphCats)]
+        morphCats = [cat for cat in list(obj.DazMorphCats.items())]
+        enum = [(cat[1].name, cat[0].replace(' ', '_').upper(), '', idx) for (idx, cat) in enumerate(morphCats)]
+        return enum
     else:
         return [('No_Morphs_Detected', 'No Morphs Detected', '', 0)]
-
-bpy.types.WindowManager.daz_morph_categories = bpy.props.EnumProperty(items=morph_options)
-
-# based on https://blender.stackexchange.com/questions/45992/how-to-remove-duplicated-node-groups
-# massively updated to preserve links and values
-
+    
 
 class Settings(bpy.types.PropertyGroup):
     ignore_nodes: bpy.props.BoolProperty(
@@ -31,13 +52,18 @@ class Settings(bpy.types.PropertyGroup):
         description="Don't check if a merging material's texture files are the same",
         default=False
     )
-
+    
+    obj_morphs: bpy.props.EnumProperty(items=morph_options)
+    
+    morphs_path: bpy.props.StringProperty(subtype='FILE_PATH')
+    
+    scene: bpy.props.StringProperty(subtype='FILE_PATH')
 
 class View3DPanel:
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Foxxo7D Tools"
-        
+
     def render(self):
         layout = self.layout
         class_name = type(self).__name__
@@ -54,15 +80,16 @@ class View3DPanel:
     def poll(cls, context):
         return (context.object is not None)
 
+
 class Misc(View3DPanel, bpy.types.Panel):
     bl_idname = "VIEW3D_PT_Miscellaneous_Panel"
     bl_label = "Miscellaneous"
 
     def draw(self, context):
         layout = self.layout
-        layout.operator('foxxo.fuzzy_match_bones')
         layout.operator('foxxo.command_line_render')
         self.render()
+
 
 class Nodes(View3DPanel, bpy.types.Panel):
     bl_idname = "VIEW3D_PT_Nodes_Panel"
@@ -71,12 +98,14 @@ class Nodes(View3DPanel, bpy.types.Panel):
     def draw(self, context):
         self.render()
 
+
 class Drivers(View3DPanel, bpy.types.Panel):
     bl_idname = "VIEW3D_PT_Drivers_Panel"
     bl_label = "Drivers"
 
     def draw(self, context):
         self.render()
+
 
 class Bones(View3DPanel, bpy.types.Panel):
     bl_idname = "VIEW3D_PT_Bones_Panel"
@@ -85,6 +114,7 @@ class Bones(View3DPanel, bpy.types.Panel):
     def draw(self, context):
         self.render()
 
+
 class Shapekeys(View3DPanel, bpy.types.Panel):
     bl_idname = "VIEW3D_PT_Shapekeys_Panel"
     bl_label = "Shapekeys"
@@ -92,20 +122,23 @@ class Shapekeys(View3DPanel, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         layout.operator('daz.load_favo_morphs')
+        layout.operator('daz.import_custom_morphs', text='Load Custom Morphs')
         layout.operator('daz.transfer_shapekeys')
-        layout.operator('daz.convert_morphs_to_shapekeys')
+        layout.operator('daz.convert_morphs_to_shapekeys', text='Bake Morphs')
         layout.operator('daz.remove_standard_morphs')
         self.render()
+
 
 class Pose(View3DPanel, bpy.types.Panel):
     bl_idname = "VIEW3D_PT_Pose_Panel"
     bl_label = "Pose"
-    
+
     def draw(self, context):
         layout = self.layout
         layout.operator('daz.import_pose', text='Import Pose')
         layout.operator('daz.clear_pose', text='Clear Pose')
-    
+
+
 class PANEL_PT_ShapekeysCollapsePanel(View3DPanel, bpy.types.Panel):
     bl_parent_id = "VIEW3D_PT_Shapekeys_Panel"
     bl_label = "Active Shapekeys"
@@ -125,7 +158,7 @@ class PANEL_PT_ShapekeysCollapsePanel(View3DPanel, bpy.types.Panel):
                     key = shapekeys.key_blocks
                     if (key is not None and len(list(key)) > 0):
                         layout.template_list("UI_UL_ShapkeysListTemplate", "", shapekeys,
-                                            "key_blocks", context.object, "active_shape_key_index", rows=3)
+                                             "key_blocks", context.object, "active_shape_key_index", rows=3)
 
 
 class PANEL_PT_DazCustomMorphs(View3DPanel, bpy.types.Panel):
@@ -138,11 +171,12 @@ class PANEL_PT_DazCustomMorphs(View3DPanel, bpy.types.Panel):
             obj = obj.find_armature()
         layout = self.layout
         row = layout.row()
-        row.prop_menu_enum(context.window_manager, 'daz_morph_categories', text=context.window_manager.daz_morph_categories)
+        row.prop_menu_enum(context.scene.foxxo_properties, 'obj_morphs',
+                           text=context.scene.foxxo_properties.obj_morphs)
         row = layout.row()
         if hasattr(obj, 'DazCustomMorphs'):
             for cat in obj.DazMorphCats:
-                if cat.name == context.window_manager.daz_morph_categories:
+                if cat.name == context.scene.foxxo_properties.obj_morphs:
                     row = layout.row()
                     row.template_list('LIST_UL_custom_morphs',
                                       '', cat, 'morphs', cat, 'index', rows=3)
@@ -162,7 +196,7 @@ class LIST_UL_custom_morphs(bpy.types.UIList):
             row = split.row(align=True)
             row.emboss = 'NONE_OR_STATUS'
             row.prop(obj, '["' + morph.name + '"]',
-                        text="", emboss=False, icon_only=True)
+                     text="", emboss=False, icon_only=True)
         elif self.layout_type == 'GRID':
             layout.alignment = 'CENTER'
             layout.label(text="", icon_value=icon)
@@ -241,12 +275,14 @@ class Properties(View3DPanel, bpy.types.Panel):
         self.render()
 
 
-class Materials(View3DPanel, bpy.types.Panel):
-    bl_idname = "VIEW3D_PT_Nodegroup_Panel"
-    bl_label = "Materials"
+# class Materials(View3DPanel, bpy.types.Panel):
+#     bl_idname = "VIEW3D_PT_Materials_Panel"
+#     bl_label = "Materials"
 
-    def draw(self, context):
-        self.render()
+#     def draw(self, context):
+#         self.render()
+
+
 
 # class Options(View3DPanel, bpy.types.Panel):
 #     bl_idname = "VIEW3D_PT_options_panel"
@@ -267,19 +303,32 @@ class Materials(View3DPanel, bpy.types.Panel):
 #         self.render()
 
 
+class Test(View3DPanel, bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_Test_Panel"
+    bl_label = "Test"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator('daz.easy_import_daz', text="Import Scene")
+        self.render()
+
 class Rigging(View3DPanel, bpy.types.Panel):
     bl_idname = "VIEW3D_PT_rigging_panel"
     bl_label = "Rigging"
     bl_alias = "Weights"
 
     def draw(self, context):
+        layout = self.layout
+        layout.operator('object.armature_human_metarig_add',
+                        text="Add Metarig")
+        layout.operator('graph.driver_delete_invalid')
         self.render()
-        
+
 # clsmembers = inspect.getmembers(sys.modules[__name__], inspect.isclass)
+
 
 def register():
     bpy.types.Scene.foxxo_properties = bpy.props.PointerProperty(type=Settings)
-
 
 def unregister():
     del bpy.types.Scene.foxxo_properties

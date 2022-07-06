@@ -1,28 +1,16 @@
 import bpy
 import re
-# from mathutils import Matrix
-from .utils import get_rig, identify_rig, is_rigify, is_autorig, invert, open_normalized_path
+from .vars import hand_group, face_bones2
+from .utils import get_rig, identify_rig, is_rigify, is_autorig, invert, open_normalized_path, get_other_rig, set_mode
 from .decorators import Operator
-
-hand_group = {
-    'Hand': 'hand',
-    'Carpal': 'palm',
-    'Index': 'f_index',
-    'Mid': 'f_middle',
-    'Ring': 'f_ring',
-    'Pinky': 'f_pinky',
-    'Thumb': 'thumb'
-}
-
-face_bones = ['upperTeeth', 'lowerTeeth', 'head', 'rBrowInner', 'rBrowMid', 'rBrowOuter', 'lBrowInner', 'lBrowMid', 'lBrowOuter', 'CenterBrow', 'MidNoseBridge', 'lEyelidInner', 'lEyelidUpperInner', 'lEyelidUpper', 'lEyelidUpperOuter', 'lEyelidOuter', 'lEyelidLowerOuter', 'lEyelidLower', 'lEyelidLowerInner', 'rEyelidInner', 'rEyelidUpperInner', 'rEyelidUpper', 'rEyelidUpperOuter', 'rEyelidOuter', 'rEyelidLowerOuter', 'rEyelidLower', 'rEyelidLowerInner', 'lSquintInner', 'lSquintOuter', 'rSquintInner', 'rSquintOuter', 'lCheekUpper', 'rCheekUpper', 'Nose', 'lNostril', 'rNostril', 'lLipBelowNose', 'rLipBelowNose',
-              'lLipNasolabialCrease', 'rLipNasolabialCrease', 'lNasolabialUpper', 'rNasolabialUpper', 'lNasolabialMiddle', 'rNasolabialMiddle', 'LipUpperMiddle', 'lLipUpperOuter', 'lLipUpperInner', 'rLipUpperInner', 'rLipUpperOuter', 'lEar', 'rEar', 'lowerJaw', 'tongue01', 'tongue02', 'tongue03', 'tongue04', 'BelowJaw', 'lJawClench', 'rJawClench', 'lNasolabialLower', 'rNasolabialLower', 'lNasolabialMouthCorner', 'rNasolabialMouthCorner', 'lLipCorner', 'lLipLowerOuter', 'lLipLowerInner', 'LipLowerMiddle', 'rLipLowerInner', 'rLipLowerOuter', 'rLipCorner', 'LipBelow', 'Chin', 'lCheekLower', 'rCheekLower', 'lEye', 'rEye']
 
 
 def copy_bone_rigify_properties(to_bone, from_bone):
     for key in from_bone.keys():
         if 'rigify' in key:
             to_bone[key] = from_bone[key]
-        
+
+
 def remove_bone_rigify_properties(bone, key=None):
     if key:
         bone.pop(key)
@@ -30,6 +18,7 @@ def remove_bone_rigify_properties(bone, key=None):
         for key in list(bone.keys()):
             if 'rigify' in key:
                 bone.pop(key)
+
 
 def rename_hand_bones(self, context):
     rig = context.selected_objects[0]
@@ -65,42 +54,10 @@ def reconnect_child_bones(self, context):
                     str(int(num) - 1) + '.' + bone_name[-1]
                 if rig.edit_bones.get(parent_name):
                     print('parenting: ', ebone.name, ' to ', parent_name)
+                    # need to dereference
+                    parent_bone_name = dereference(parent_name)
                     parent = rig.edit_bones[parent_name]
                     ebone.parent = parent
-
-
-@Operator(label='Remove Driven Bones')
-def remove_drv_bones(self, context):
-    parents = open_normalized_path('./data/genesis8_parents.json')['parents']
-    bpy.ops.object.mode_set(mode='EDIT')
-
-    bones = context.editable_bones
-    rig = get_rig(context.selected_objects[0])
-
-    for ebone in bones:
-        if '(drv)' in ebone.name:
-            original_bone_name = ebone.name.replace('(drv)', '')
-            parent_bone_name = parents.get(original_bone_name)
-            parent_bone = bones.get(parent_bone_name)
-            rig.edit_bones.remove(ebone)
-            obone = bones.get(original_bone_name)
-            obone.parent = parent_bone
-
-
-@Operator()
-def connect_bone_chain(self, context):
-    end = context.selected_editable_bones[0]
-    bones = list(context.selected_editable_bones)
-    # y90 = Matrix.Rotation(math.radians(-90), 4, 'Y')
-    # print(y90, end.matrix, y90 @ end.matrix)
-    # mat = end.matrix @ y90
-    # print(mat.inverted())
-    # end.matrix = mat
-
-    for bone in bones:
-        if bone.parent and bone != end:
-            bone.head = bone.parent.tail
-            bone.use_connect = True
 
 
 def change_bone_roll(rig, bone_rolls, skeleton, rigify=False):
@@ -116,7 +73,7 @@ def change_bone_roll(rig, bone_rolls, skeleton, rigify=False):
             dereference_bone = ref_skeleton.get(basename)
             bone_roll = bone_rolls.get(dereference_bone)
             if dereference_bone and bone_roll:
-                if dereference_bone not in face_bones:
+                if dereference_bone not in face_bones2:
                     edit_bones = bpy.context.editable_bones
                     for edit_bone in edit_bones:
                         if prefix and (prefix in edit_bone.name):
@@ -135,23 +92,6 @@ def change_bone_roll(rig, bone_rolls, skeleton, rigify=False):
             dereference(pbone, org_bones, prefix='MCH-')
 
 
-@Operator()
-def copy_genesis8_bone_rolls(self, context):
-    rig = context.selected_objects[0]
-    bone_rolls = open_normalized_path('./data/genesis8_bone_rolls.json')
-    skeleton = {
-        'rigify': open_normalized_path('./data/genesis8_to_rigify2.json', invert_keys=True),
-        'metarig': open_normalized_path('./data/daz_to_rigify.json'),
-        'autorig': open_normalized_path('./data/daz_to_autorigref.json'),
-        'metsrig': open_normalized_path('./data/genesis3-autorig.json', invert_keys=True),
-        'unknown': None
-    }[identify_rig(rig)]
-
-    if skeleton:
-        bpy.ops.object.mode_set(mode='EDIT')
-        change_bone_roll(rig, bone_rolls, skeleton, rigify=is_rigify(rig))
-
-
 def change_rotation_mode(rig, skeleton, rigify=False, autorig=False):
     rotation_orders = open_normalized_path(
         './data/genesis8_rotation_orders.json')
@@ -165,13 +105,13 @@ def change_rotation_mode(rig, skeleton, rigify=False, autorig=False):
         # dereference
         # get rotation order
         dereference_bone = skeleton.get(basename)
-        print('dbone: ', dereference_bone)
+        # print('dbone: ', dereference_bone)
         if dereference_bone and rotation_orders.get(dereference_bone):
-            print('dereferencing: ', pbone.name, 'to ', dereference_bone)
-            if dereference_bone not in face_bones:
+            # print('dereferencing: ', pbone.name, 'to ', dereference_bone)
+            if dereference_bone not in face_bones2:
                 pbone.rotation_mode = rotation_orders.get(dereference_bone)
         if dereference_bone and daz_rotmodes.get(dereference_bone):
-            if dereference_bone not in face_bones:
+            if dereference_bone not in face_bones2:
                 pbone.rotation_mode = rotation_orders.get(dereference_bone)
                 pbone['DazRotMode'] = daz_rotmodes.get(dereference_bone)
 
@@ -184,10 +124,15 @@ def change_rotation_mode(rig, skeleton, rigify=False, autorig=False):
         #     dereference(pbone, org_bones, prefix='MCH-')
 
 
-@Operator(label='Copy Genesis8 Rotation Order')
-def copy_rig_rotation_order(self, context):
+def _copy_rotation_order(self, context):
     rig = context.selected_objects[0]
-
+    try:
+        if rig == None:
+            rig = bpy.data.objects['metarig']
+    except:
+        self.report({'INFO'}, 'You must select a rig')
+        
+    print('target rig: ', rig)
     skeleton = {
         'rigify': open_normalized_path('./data/genesis8_to_rigify2.json', invert_keys=True),
         'metarig': open_normalized_path('./data/daz_to_rigify.json'),
@@ -201,3 +146,67 @@ def copy_rig_rotation_order(self, context):
     if skeleton:
         change_rotation_mode(rig, skeleton, rigify=is_rigify(
             rig), autorig=is_autorig(rig))
+
+
+def _copy_bone_rolls(context):
+    rig = None
+    try:
+        rig = context.selected_objects[0]
+    except:
+        rig = bpy.data.objects['metarig']
+    bone_rolls = open_normalized_path('./data/genesis8_bone_rolls.json')
+    skeleton = {
+        'rigify': open_normalized_path('./data/genesis8_to_rigify2.json', invert_keys=True),
+        'metarig': open_normalized_path('./data/daz_to_rigify.json'),
+        'autorig': open_normalized_path('./data/daz_to_autorigref.json'),
+        'metsrig': open_normalized_path('./data/genesis3-autorig.json', invert_keys=True),
+        'unknown': None
+    }[identify_rig(rig)]
+
+    if skeleton:
+        set_mode('EDIT')
+        change_bone_roll(rig, bone_rolls, skeleton, rigify=is_rigify(rig))
+        set_mode('OBJECT')
+
+@Operator(label='Copy Rotation Order')
+def copy_rig_rotation_order(self, context):
+    _copy_rotation_order(self, context)
+
+
+@Operator()
+def connect_bone_chain(self, context):
+    end = context.selected_editable_bones[0]
+    bones = list(context.selected_editable_bones)
+    # y90 = Matrix.Rotation(math.radians(-90), 4, 'Y')
+    # print(y90, end.matrix, y90 @ end.matrix)
+    # mat = end.matrix @ y90
+    # print(mat.inverted())
+    # end.matrix = mat
+
+    for bone in bones:
+        if bone.parent and bone != end:
+            bone.head = bone.parent.tail
+            bone.use_connect = True
+            
+
+@Operator(label='Remove Driven Bones')
+def remove_drv_bones(self, context):
+    parents = open_normalized_path('./data/genesis8_parents.json')['parents']
+    bpy.ops.object.mode_set(mode='EDIT')
+
+    bones = context.editable_bones
+    rig = get_rig(context.selected_objects[0])
+
+    for ebone in bones:
+        if '(drv)' in ebone.name:
+            original_bone_name = ebone.name.replace('(drv)', '')
+            parent_bone_name = parents.get(original_bone_name)
+            parent_bone = bones.get(parent_bone_name)
+            rig.edit_bones.remove(ebone)
+            obone = bones.get(original_bone_name)
+            obone.parent = parent_bone
+            
+
+@Operator()
+def copy_bone_rolls(self, context):
+    _copy_bone_rolls(context)

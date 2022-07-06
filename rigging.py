@@ -4,7 +4,6 @@ from copy import deepcopy
 from mathutils import Vector
 from .utils import get_rig, get_type
 from .decorators import Operator
-from .bones import face_bones
 
 def get_edit_bone(bone):
     if get_type(bone) == 'str':

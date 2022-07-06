@@ -3,6 +3,9 @@ import json
 import os
 import bmesh
 import os.path
+import rigify
+import sys
+import importlib.util
 from re import sub
 
 addon_path = os.path.join(bpy.utils.user_resource(
@@ -14,19 +17,28 @@ def is_blender_28():
 
 
 def get_mesh(rig):
+    found = None
     for mesh in rig.children:
         if mesh.type == 'MESH':
             if hasattr(mesh.data, 'DazFingerPrint') and mesh.data.DazFingerPrint == '16556-32882-16368':
-                return mesh
+                found = mesh
+    if found == None:
+        for obj in bpy.data.objects:
+            if hasattr(obj.data, 'DazFingerPrint') and obj.data.DazFingerPrint == '16556-32882-16368':
+                found = obj
+    return found
+
+def get_rig_children(obj):
+    return list(obj.children)
+
+def get_object_from_mesh(mesh):
+    return mesh.id_data.data
 
 
 def get_rig(obj):
-    try:
-        if hasattr(obj, 'type') and obj.type == 'MESH':
-            obj = obj.find_armature()
-        return obj.pose.bones[0].id_data.data
-    except KeyError:
-        return False
+    if hasattr(obj, 'type') and obj.type == 'MESH':
+        obj = obj.find_armature()
+    return obj.pose.bones[0].id_data.data
 
 
 def is_metarig(rig):
@@ -72,22 +84,22 @@ def identify_rig(obj):
 
 def is_rigify(obj):
     try:
-        return obj['rig_ui'] is not None
-    except KeyError:
+        return obj['rig_ui'] is not None or obj.DazRig == 'rigify2'
+    except:
         return False
 
 
 def is_autorig(obj):
     try:
-        return obj.get('arp_rig_type') is not None
-    except KeyError:
+        return obj['arp_rig_type'] is not None
+    except:
         return False
 
 
 def is_metsrig(obj):
     try:
         return 'Mets_' in obj.name
-    except KeyError:
+    except:
         return False
 
 
@@ -115,9 +127,9 @@ def blender_side_to_daz_format(string):
 
 def open_normalized_path(path, invert_keys=False):
     if invert_keys:
-        return invert(json.load(open(os.path.normpath(os.path.join(addon_path, path)), 'r')))
+        return dict(invert(json.load(open(os.path.normpath(os.path.join(addon_path, path)), 'r'))))
     else:
-        return json.load(open(os.path.normpath(os.path.join(addon_path, path)), 'r'))
+        return dict(json.load(open(os.path.normpath(os.path.join(addon_path, path)), 'r')))
 
 
 def camel_case(text):
@@ -153,20 +165,49 @@ def set_active_object(object_name):
 
 def get_other_rig(context):
     rigs = get_source_and_target_rigs(context)
-    return rigs['target']
+    rig = rigs.get('target')
+    # print('rigs: ', rigs)
+    if rig:
+        return rig
+    else:
+        return find_other_rig()
 
 
 def get_daz_rig(context):
     rigs = get_source_and_target_rigs(context)
-    return rigs['source']
+    if rigs.get('source'):
+        return rigs['source']
+    else:
+        return find_daz_rig()
 
+
+def find_daz_rig():
+    objs = list(bpy.data.objects)
+    for obj in objs:
+        if hasattr(obj, 'DazRig') and obj.DazRig == 'genesis8':
+            return obj
+
+
+# look for any rig with rigify properties thats not a metarig
+def find_other_rig():
+    objs = list(bpy.data.objects)
+    for obj in objs:
+        if obj.name != 'metarig':
+            keys = list(obj.keys())
+            if 'rig_ui' in keys:
+                return obj
+
+def find_metarig():
+    pass
 
 def get_source_and_target_rigs(context):
     selected = list(context.selected_objects)
-
-    if hasattr(selected[0], 'DazRig') and 'genesis' in selected[0].DazRig.lower():
+    if any(selected) == False:
+        selected = [find_daz_rig(), find_other_rig()]
+    # print('selected: ', selected)
+    if hasattr(selected[0], 'DazRig') and selected[0].DazRig == 'genesis8':
         return {'source': selected[0], 'target': selected[1]}
-    elif hasattr(selected[1], 'DazRig') and 'genesis' in selected[1].DazRig.lower():
+    elif hasattr(selected[1], 'DazRig') and selected[1].DazRig == 'genesis8':
         return {'source': selected[1], 'target': selected[0]}
     # find the rig that has the adjust JCM driver
     elif hasattr(get_rig(selected[0]), 'animation_data.drivers') and get_rig(selected[0]).animation_data.drivers.find('["JCMs On(fin)"]'):
@@ -174,11 +215,16 @@ def get_source_and_target_rigs(context):
     elif hasattr(get_rig(selected[1]), 'animation_data.drivers') and get_rig(selected[1]).animation_data.drivers.find('["JCMs On(fin)"]'):
         return {'source': selected[1], 'target': selected[0]}
 
+
 def merge(dict1, dict2):
-    return(dict1.update(dict2))
+    newdict = dict1.copy()
+    newdict.update(dict2)
+    return newdict
+
 
 def get_type(thing):
     return type(thing).__name__
+
 
 def get_indices():
     obj = bpy.context.object
@@ -192,33 +238,127 @@ def get_indices():
     bpy.ops.object.mode_set(mode='OBJECT')
     return indices
 
+
 def get_bones():
     bpy.ops.object.mode_set(mode='POSE')
     bone_names = [bone.name for bone in bpy.context.selected_pose_bones]
     bpy.ops.object.mode_set(mode='OBJECT')
     return bone_names
 
-def select_vertex_by_index(indices):
-    set_active_object('Genesis 8 Female Mesh')
+
+def select_vertex_by_index(obj, indices):
+    set_active_object(obj.name)
     obj = bpy.context.object
     for index in indices:
         v = obj.data.vertices[index]
         v.select = True
 
+
 def set_mode(mode):
     bpy.ops.object.mode_set(mode=mode)
-    
+
+
 def get_bone(rig, bone_name):
     return get_rig(rig).edit_bones.get(bone_name)
+
 
 def get_pbone(rig, bone_name):
     return rig.pose.bones.get(bone_name)
 
+
 def get_updated_ebone(bone_name):
     return bpy.context.object.data.edit_bones.get(bone_name)
+
 
 def get_updated_pbone(bone_name):
     return bpy.context.object.pose.bones.get(bone_name)
 
+
 def pack(arr):
     return list(zip(arr))
+
+
+def get_rigify_rig(context):
+    for obj in list(context.selected_objects):
+        if obj.type == 'ARMATURE':
+            if hasattr(obj, 'rig_ui'):
+                return obj
+
+
+def copy_bone(**args):
+    return rigify.utils.copy_bone(**args)
+
+
+def import_module(name, file_path):
+    spec = importlib.util.spec_from_file_location(name, file_path)
+    foo = importlib.util.module_from_spec(spec)
+    sys.modules[name] = foo
+    spec.loader.exec_module(foo)
+
+
+# TODO: cross reference with new rig to makes sure bones with duplicate names are parented correctly
+def get_extra_bones(rig, root_bone, recursive=False, ignore_driven=True):
+    set_mode('EDIT')
+    bones = []
+    rig_bones = get_rig(rig).edit_bones[root_bone].children_recursive if recursive else get_rig(
+        rig).edit_bones[root_bone].children
+    rig_bones = [bone for bone in rig_bones if bone.name not in open_normalized_path(
+        './data/daz_to_rigify.json', invert_keys=True).keys() and '(drv)' not in bone.name]
+    if recursive:
+        for ebone in rig_bones:
+            if ignore_driven:
+                # find the driven bone, get its parent
+                # use that as the parent
+                if '(drv)' not in ebone.name:
+                    driven = get_rig(rig).edit_bones.get(
+                        ebone.name + '(drv)')
+                    if driven: bones.append((ebone.name, driven.parent.name))
+                    else: bones.append((ebone.name, ebone.parent.name))
+                else: bones.append((ebone.name.replace('(drv)', ''), ebone.parent.name))
+            else: bones.append((ebone.name, ebone.parent.name))
+    else:
+        if ignore_driven:
+            for ebone in rig_bones:
+                if '(drv)' not in ebone.name:
+                    driven = get_rig(rig).edit_bones.get(
+                        ebone.name + '(drv)')
+                    if driven: bones.append((ebone.name, driven.parent.name))
+                    else: bones.append((ebone.name, ebone.parent.name))
+                else: bones.append((ebone.name, ebone.parent.name))
+    return bones
+
+
+def select(obj_name):
+    bpy.data.objects[obj_name].select_set(True)
+
+
+def deselect(obj_name):
+    bpy.data.objects[obj_name].select_set(False)
+
+
+def deselect_all():
+    bpy.ops.object.select_all(action='DESELECT')
+
+
+def strip_prefix(bone):
+    return bone.replace('ORG-', '').replace('DEF-', '')
+
+# a fucking infallible way to get a bone
+def dereference(bone):
+    try:
+        bone_name = strip_prefix(bone)
+        skeleton = merge(open_normalized_path('./data/daz_to_rigify.json'), open_normalized_path('./data/hand_group2.json'))
+        skeleton_inverted = invert(skeleton)
+        found = skeleton.get(bone_name) or skeleton_inverted.get(bone_name) or skeleton.get(side_to_blender_format(bone_name, prefix='')) or skeleton_inverted.get(blender_side_to_daz_format(bone_name))
+        return found
+    except:
+        return None
+
+def get_bones_diff(rigify_rig, daz_rig):
+    skeleton = merge(open_normalized_path('./data/daz_to_rigify.json'), open_normalized_path('./data/hand_group2.json'))
+    bones1 = list(rigify_rig.edit_bones)
+    bones2 = [skeleton.get(bone.name) for bone in list(daz_rig.edit_bones)]
+    diff = bones2 - bones1
+    return diff
+    
+    
