@@ -6,6 +6,8 @@ import os.path
 import rigify
 import sys
 import importlib.util
+from copy import deepcopy
+from  . import vars
 from re import sub
 
 addon_path = os.path.join(bpy.utils.user_resource(
@@ -28,8 +30,10 @@ def get_mesh(rig):
                 found = obj
     return found
 
+
 def get_rig_children(obj):
     return list(obj.children)
+
 
 def get_object_from_mesh(mesh):
     return mesh.id_data.data
@@ -46,6 +50,10 @@ def is_metarig(rig):
         return (rig.name == 'metarig')
     except:
         return False
+
+
+def side_to_blender_format1(bone, prefix=''):
+    return side_to_blender_format(bone, prefix=prefix)
 
 
 def side_to_blender_format(bone, prefix='DEF-'):
@@ -104,7 +112,8 @@ def is_metsrig(obj):
 
 
 def invert(keys):
-    return {val: key for key, val in keys.items()}
+    keys_copy = keys.copy()
+    return {val: key for key, val in keys_copy.items()}
 
 
 def capitalize(string, index=0):
@@ -125,11 +134,19 @@ def blender_side_to_daz_format(string):
     return string
 
 
-def open_normalized_path(path, invert_keys=False):
+def open_json(path, invert_keys=False):
     if invert_keys:
         return dict(invert(json.load(open(os.path.normpath(os.path.join(addon_path, path)), 'r'))))
     else:
         return dict(json.load(open(os.path.normpath(os.path.join(addon_path, path)), 'r')))
+
+
+def add_addon_path(path):
+    return os.path.normpath(os.path.join(addon_path, path))
+
+
+def get_lib_blend_path():
+    return os.path.normpath(os.path.join(addon_path, './blends/library.blend'))
 
 
 def camel_case(text):
@@ -166,7 +183,6 @@ def set_active_object(object_name):
 def get_other_rig(context):
     rigs = get_source_and_target_rigs(context)
     rig = rigs.get('target')
-    # print('rigs: ', rigs)
     if rig:
         return rig
     else:
@@ -197,8 +213,12 @@ def find_other_rig():
             if 'rig_ui' in keys:
                 return obj
 
-def find_metarig():
-    pass
+
+def get_metarig(context):
+    if context.scene.objects['metarig']:
+        return context.scene.objects['metarig']
+    return bpy.objects['metarig']
+
 
 def get_source_and_target_rigs(context):
     selected = list(context.selected_objects)
@@ -274,8 +294,8 @@ def get_updated_pbone(bone_name):
     return bpy.context.object.pose.bones.get(bone_name)
 
 
-def pack(arr):
-    return list(zip(arr))
+def pack(arr1, arr2):
+    return list(zip(arr1, arr2))
 
 
 def get_rigify_rig(context):
@@ -302,7 +322,7 @@ def get_extra_bones(rig, root_bone, recursive=False, ignore_driven=True):
     bones = []
     rig_bones = get_rig(rig).edit_bones[root_bone].children_recursive if recursive else get_rig(
         rig).edit_bones[root_bone].children
-    rig_bones = [bone for bone in rig_bones if bone.name not in open_normalized_path(
+    rig_bones = [bone for bone in rig_bones if bone.name not in open_json(
         './data/daz_to_rigify.json', invert_keys=True).keys() and '(drv)' not in bone.name]
     if recursive:
         for ebone in rig_bones:
@@ -312,19 +332,27 @@ def get_extra_bones(rig, root_bone, recursive=False, ignore_driven=True):
                 if '(drv)' not in ebone.name:
                     driven = get_rig(rig).edit_bones.get(
                         ebone.name + '(drv)')
-                    if driven: bones.append((ebone.name, driven.parent.name))
-                    else: bones.append((ebone.name, ebone.parent.name))
-                else: bones.append((ebone.name.replace('(drv)', ''), ebone.parent.name))
-            else: bones.append((ebone.name, ebone.parent.name))
+                    if driven:
+                        bones.append((ebone.name, driven.parent.name))
+                    else:
+                        bones.append((ebone.name, ebone.parent.name))
+                else:
+                    bones.append(
+                        (ebone.name.replace('(drv)', ''), ebone.parent.name))
+            else:
+                bones.append((ebone.name, ebone.parent.name))
     else:
         if ignore_driven:
             for ebone in rig_bones:
                 if '(drv)' not in ebone.name:
                     driven = get_rig(rig).edit_bones.get(
                         ebone.name + '(drv)')
-                    if driven: bones.append((ebone.name, driven.parent.name))
-                    else: bones.append((ebone.name, ebone.parent.name))
-                else: bones.append((ebone.name, ebone.parent.name))
+                    if driven:
+                        bones.append((ebone.name, driven.parent.name))
+                    else:
+                        bones.append((ebone.name, ebone.parent.name))
+                else:
+                    bones.append((ebone.name, ebone.parent.name))
     return bones
 
 
@@ -347,18 +375,74 @@ def strip_prefix(bone):
 def dereference(bone):
     try:
         bone_name = strip_prefix(bone)
-        skeleton = merge(open_normalized_path('./data/daz_to_rigify.json'), open_normalized_path('./data/hand_group2.json'))
+        skeleton = merge(open_json('./data/daz_to_rigify.json'),
+                         open_json('./data/hand_group2.json'))
         skeleton_inverted = invert(skeleton)
-        found = skeleton.get(bone_name) or skeleton_inverted.get(bone_name) or skeleton.get(side_to_blender_format(bone_name, prefix='')) or skeleton_inverted.get(blender_side_to_daz_format(bone_name))
+        found = skeleton.get(bone_name) or skeleton_inverted.get(bone_name) or skeleton.get(
+            side_to_blender_format1(bone_name)) or skeleton_inverted.get(blender_side_to_daz_format(bone_name))
         return found
     except:
         return None
 
-def get_bones_diff(rigify_rig, daz_rig):
-    skeleton = merge(open_normalized_path('./data/daz_to_rigify.json'), open_normalized_path('./data/hand_group2.json'))
-    bones1 = list(rigify_rig.edit_bones)
-    bones2 = [skeleton.get(bone.name) for bone in list(daz_rig.edit_bones)]
-    diff = bones2 - bones1
-    return diff
-    
-    
+
+def get_bones_diff(rig1, rig2, dereference=None):
+    if dereference is None:
+        dereference = invert(merge(open_json('./data/daz_to_rigify.json', invert_keys=True),
+                            open_json('./data/hand_group2.json')))
+        print(dereference)
+    bones1 = list(set([dereference.get(bone.name) for bone in list(rig1.pose.bones)]) - set(vars.face_bones2))
+    bones2 = list(set([bone.name for bone in list(rig2.pose.bones)]) - set(vars.face_bones2))
+    print('bones1: ', bones1, 'bones2: ', bones2)
+    diff = set(set(bones2) - set(bones1))
+    return [bone for bone in list(diff) if 'Twist' not in bone and 'FaceRig' not in bone]
+
+
+def get_attributes(obj):
+    # all attributes that shouldn't be copied
+    ignore_attributes = ("rna_type", "type", "select")
+
+    attributes = []
+    for attr in obj.bl_rna.properties:
+        # check if the attribute should be copied and add it to the list of attributes to copy
+        if not attr.identifier in ignore_attributes and not attr.identifier.split("_")[0] == "bl":
+            attributes.append(attr.identifier)
+
+    return attributes
+
+
+def get_selected(context):
+    return context.selected_objects[0]
+
+
+def get_parent(bone, to_rig, from_rig, dereference=None):
+    try:
+        print('bone: ', bone)
+        if dereference == None:
+            dereference = deepcopy(vars.rigify_skeleton)
+        deref = dereference.get(blender_side_to_daz_format(bone))
+        org_bone = None
+        if deref:
+            org_bone = get_rig(from_rig).edit_bones.get(deref)
+        else:
+            org_bone = get_rig(from_rig).edit_bones.get(bone)
+        print('org bone: ', org_bone)
+        if hasattr(org_bone, 'parent'):
+            parent = org_bone.parent
+            metarig_parent = get_rig(to_rig).edit_bones.get(side_to_blender_format1(parent.name))
+            if metarig_parent:
+                return metarig_parent
+            else:
+                metarig_parent = get_rig(to_rig).edit_bones.get(side_to_blender_format1(dereference.get(parent.name)))
+                return metarig_parent
+    except:
+        pass
+
+
+def face_is_upgraded(metarig):
+    glue_bones = [bone for bone in get_rig(metarig).edit_bones if 'glue' in bone.name]
+    # print('glue bones: ', glue_bones)
+    return len(glue_bones) != 0
+
+
+def diff(list1, list2):
+    return list(set(set(list1) - set(list2)))

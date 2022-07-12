@@ -1,10 +1,15 @@
 import bpy
 import import_daz
+import idprop
+import re
+from .libs.jsonpickle import encode, decode
+from .libs.addict import Dict as adict
+from rigify.utils.naming import strip_def, get_name
 from copy import deepcopy
-from .libs.easydict import EasyDict as edict
+from .libs.addict import Dict as edict
 from copy import copy
 
-from .utils import copy_bone, dereference, find_daz_rig, find_other_rig, get_bone, get_pbone, get_updated_pbone, get_extra_bones, get_updated_ebone, get_rigify_rig, set_mode, blender_side_to_daz_format, is_autorig, is_rigify, side_to_blender_format, invert, get_rig, get_mesh, get_other_rig, get_daz_rig, open_normalized_path, merge, set_active_object, select, deselect, deselect_all
+from .utils import capitalize, diff, face_is_upgraded, find_daz_rig, get_selected, get_parent, get_bones_diff, get_metarig, get_bone, get_pbone, get_updated_pbone, get_extra_bones, get_updated_ebone, get_rigify_rig, set_mode, blender_side_to_daz_format, is_autorig, is_rigify, side_to_blender_format, side_to_blender_format1, invert, get_rig, get_mesh, get_other_rig, get_daz_rig, open_json, merge, set_active_object, select, deselect, deselect_all, pack
 from .decorators import Operator
 from .bones import copy_bone_rigify_properties, remove_bone_rigify_properties, _copy_rotation_order, _copy_bone_rolls
 from .rigging import copy_bone_location, connect_bones, midpoint
@@ -12,9 +17,6 @@ from .drivers import _copy_drivers, _copy_properties, _fix_shape_keys, _fix_driv
 from .properties import _remove_unnecessary_properties, _remove_bone_driver_properties, _copy_bone_altnames
 from . import vars
 from .vars import hand_group, hand_group2, six_bone_spine
-
-new_hair_bones = []
-new_toe_bones = []
 
 
 def remove_old_vg(mesh, vg, new_name):
@@ -25,8 +27,9 @@ def remove_old_vg(mesh, vg, new_name):
 
 
 def replace(mesh, group, vg, dict, prefix='', mirror=False):
-    # print('dereferencing: ', blender_side_to_daz_format(vg.name.replace('DEF-', '')), ' to ', group)
+    # print(vg.name.replace(prefix, ''), dict[group])
     if group == blender_side_to_daz_format(vg.name.replace(prefix, '')):
+        # print('dereferencing: ', blender_side_to_daz_format(vg.name.replace('DEF-', '')), ' to ', group)
         # if dict[group] == '':
         #     return
         new_name = prefix + dict[group]
@@ -81,27 +84,32 @@ def replace_hand_bones(group, vg):
                         '.0' + str(x) + '.L'
 
 
-def process_vertex_groups(mesh, rigify_skeleton, handle_unknown_groups=True):
+def process_vertex_groups(mesh, skeleton, handle_unknown_groups=True, unknown_to_blender_side=True):
     for vg in mesh.vertex_groups:
-        for group in rigify_skeleton.keys():
+        for group in skeleton.keys():
             replace(mesh, group, vg,
-                    rigify_skeleton, prefix='DEF-', mirror=True)
+                    skeleton, prefix='DEF-', mirror=True)
     if handle_unknown_groups:
-        process_unknown_groups(mesh)
+        process_unknown_groups(mesh, to_blender_side=unknown_to_blender_side)
 
 
-def process_unknown_groups(mesh):
+def process_unknown_groups(mesh, to_blender_side=True):
     for vg in mesh.vertex_groups:
         if 'MASK-' not in vg.name and 'DEF-' not in vg.name and vg.name != 'Graft' and vg.name != 'rigidity' and vg.name != 'dForce Pin' and vg.name != 'dForce Influence':
-            vg.name = side_to_blender_format(vg.name, prefix='DEF-')
+            if to_blender_side:
+                vg.name = side_to_blender_format(vg.name, prefix='DEF-')
+            else:
+                vg.name = 'DEF-' + vg.name
         if vg.name == 'dForce Influence' or vg.name == 'dForce Pin':
-            vg.name = side_to_blender_format(vg.name, prefix='MASK-')
+            if to_blender_side:
+                vg.name = side_to_blender_format(vg.name, prefix='MASK-')
+            else:
+                vg.name = 'MASK-' + vg.name
 
 
 @Operator()
 def convert_vertex_groups(self, context):
-    skel = merge(open_normalized_path(
-        './data/daz_to_rigify.json', invert_keys=True), invert(hand_group2))
+    skel = vars.rigify_skeleton.copy()
     rigify_skeleton = remove_right_bones(skel)
 
     obj = bpy.context.selected_objects[0]
@@ -125,7 +133,7 @@ def convert_vertex_groups(self, context):
 
 
 def daz_vg_to_metsrig():
-    mets_skeleton = open_normalized_path(
+    mets_skeleton = open_json(
         './data/daz_to_metsrig.json', invert_keys=True)
 
     for rig in bpy.context.selected_objects:
@@ -138,9 +146,44 @@ def daz_vg_to_metsrig():
                         replace(mesh, group, vg, mets_skeleton)
                 merge_weights(mesh, 'Spine3_Def', 'chestLower', 'ADD')
 
+def correct_valo_name(name):
+    base_name = strip_def(name)
+    if 'l_' in name[0:2].lower():
+        return capitalize(base_name.replace('l_', 'L_'))
+    elif 'r_' in name[0:2].lower():
+        return capitalize(base_name.replace('r_', 'R_'))
+    else:
+        return capitalize(base_name)
+
+def process_vertex_groups1(obj, reference):
+    for vg in obj.vertex_groups:
+        if invert(reference).get(strip_def(vg.name)):
+            continue
+        # correct vg name
+        corrected_name = correct_valo_name(vg.name)
+        deref = reference.get(corrected_name)
+        if deref:
+            vg.name = 'DEF-' + deref
+        else:
+            vg.name = 'DEF-' + corrected_name
+
+@Operator(module='Valorant')
+def valo_vertex_groups_to_rigify(self, context):
+    obj = context.selected_objects[0]
+    
+    if obj.type == 'MESH':
+        process_vertex_groups1(obj, invert(vars.valorig_bones))
+    for rig in context.selected_objects:
+        if rig.type == 'ARMATURE':
+            for mesh in rig.children:
+                if mesh.type != 'MESH':
+                    continue
+                for vg in mesh.vertex_groups:
+                    for group in invert(vars.valorig_bones).keys():
+                        replace(mesh, group, vg, vars.valorig_bones)
 
 def daz_vg_to_autorig():
-    autorig_skeleton = open_normalized_path('./data/daz_to_autorig.json')
+    autorig_skeleton = open_json('./data/daz_to_autorig.json')
 
     for rig in bpy.context.selected_objects:
         if rig.type == 'ARMATURE':
@@ -194,35 +237,13 @@ def _merge_weights(context):
 
     # TODO: move to a var file
     if 'DazMesh' in mesh.keys() and is_autorig(rig):
-        merge_weights(mesh, 'c_eyebrow_01_end.r', 'CenterBrow', 'ADD')
-        merge_weights(mesh, 'c_eyebrow_01_end.l', 'CenterBrow', 'ADD')
-        merge_weights(mesh, 'jawbone.x', 'BelowJaw', 'ADD')
-        merge_weights(mesh, 'c_cheek_inflate.l', 'lCheekLower', 'ADD')
-        merge_weights(mesh, 'c_cheek_inflate.r', 'rCheekLower', 'ADD')
-        merge_weights(mesh, 'c_cheek_inflate.l', 'lJawClench', 'ADD')
-        merge_weights(mesh, 'c_cheek_inflate.r', 'rJawClench', 'ADD')
-        merge_weights(mesh, 'c_breast_01.l', 'lBreast', 'ADD')
-        merge_weights(mesh, 'c_breast_01.r', 'rBreast', 'ADD')
-        merge_weights(mesh, 'c_breast_01.l', 'lAreola', 'ADD')
-        merge_weights(mesh, 'c_breast_01.r', 'rAreola', 'ADD')
-        merge_weights(mesh, 'c_breast_01.l', 'lNipple', 'ADD')
-        merge_weights(mesh, 'c_breast_01.r', 'rNipple', 'ADD')
-        merge_weights(mesh, 'c_nose_02.x', 'lNostril', 'ADD')
-        merge_weights(mesh, 'c_nose_02.x', 'rNostril', 'ADD')
-        merge_weights(mesh, 'head.x', 'upperFaceRig', 'ADD')
-        merge_weights(mesh, 'head.x', 'lowerFaceRig', 'ADD')
-        merge_weights(mesh, 'tong_03.x', 'tongue04"', 'ADD')
-        merge_weights(mesh, 'foot.l', 'lMetatarsals"', 'ADD')
-        merge_weights(mesh, 'foot.r', 'rMetatarsals"', 'ADD')
+        for arbone, dazbone, merge_type in vars.autorig_merge_weights:
+            merge_weights(mesh, arbone, dazbone, merge_type)
     if 'DazMesh' in mesh.keys() and is_rigify(rig):
         has_extra_spine_bone = rig.pose.bones.get('ORG-spine.007') is not None
         # merge these weights or they'll stay in place
-        merge_weights(mesh, 'DEF-foot.L', 'DEF-metatarsals.L', 'ADD')
-        merge_weights(mesh, 'DEF-foot.R', 'DEF-metatarsals.R', 'ADD')
-        merge_weights(mesh, 'DEF-tongue.002', 'DEF-tongue04', 'ADD')
-        merge_weights(mesh, 'DEF-brow.T.R.003', 'DEF-centerBrow', 'AVG')
-        merge_weights(mesh, 'DEF-brow.T.L.003', 'DEF-centerBrow', 'AVG')
-        merge_weights(mesh, 'DEF-jaw', 'DEF-lowerJaw', 'ADD')
+        for rigify_bone, dazbone, merge_type in vars.rigify_merge_weights:
+            merge_weights(mesh, rigify_bone, dazbone, merge_type)
 
         if len([o for o in mesh.vertex_groups if 'heel' in o.name]) > 0:
             merge_weights(mesh, 'DEF-foot.L', 'DEF-heel.L', 'ADD')
@@ -253,7 +274,9 @@ def snap_metarig(self, context):
             {'INFO'}, 'Must Have Only the Metarig and Genesis Rig Selected')
         return
     else:
+        # set_mode('OBJECT')
         _snap_metarig_to_daz_rig(context)
+        set_mode('OBJECT')
         deselect_all()
         select('metarig')
         set_active_object('metarig')
@@ -268,8 +291,8 @@ def setup_rigify_parameters(self, context):
 
 
 def _snap_metarig_to_daz_rig(context):
-    skeleton = merge(open_normalized_path('./data/daz_to_rigify.json'),
-                     open_normalized_path('./data/hand_group2.json', invert_keys=True))
+    skeleton = merge(open_json('./data/daz_to_rigify.json'),
+                     open_json('./data/hand_group2.json', invert_keys=True))
 
     set_mode('OBJECT')
     metarig = get_other_rig(context)
@@ -349,25 +372,21 @@ def _snap_metarig_to_daz_rig(context):
         obj = bpy.context.object
         arm = get_rig(obj)
         positions = []
-        set_mode('EDIT')
 
         for bone in bones:
             ebone = arm.edit_bones.get(bone)
             co_final = obj.matrix_world @ ebone.matrix
             positions.append(co_final.freeze())
-        set_mode('OBJECT')
         return positions
 
     def get_bone_head_and_tail(bone):
         arm = get_rig(daz_rig)
         obj = daz_rig
-        set_mode('EDIT')
         ebone = arm.edit_bones[bone]
         head = ebone.head @ obj.matrix_world
         tail = ebone.tail @ obj.matrix_world
         head.freeze()
         tail.freeze()
-        set_mode('OBJECT')
         return (head, tail)
 
     def zip_coordinates_by_vertex_index(bones, indices):
@@ -379,13 +398,11 @@ def _snap_metarig_to_daz_rig(context):
 
     def set_forehead_coordinates(forehead_indices):
         set_active_object(metarig.name)
-        set_mode('EDIT')
         for bone, indices in forehead_indices:
             head, tail = get_vertex_location_by_index(indices)
             ebone = get_rig(metarig).edit_bones[bone]
             ebone.head = head
             ebone.tail = tail
-        set_mode('OBJECT')
 
     def reverse_bone(bone):
         boneHead = bone.head.copy()
@@ -481,10 +498,16 @@ def _snap_metarig_to_daz_rig(context):
     copy_bone_location(neckLower, spine005)
 
     spine004.tail = spine005.head.copy()
-    # fix nose.L.001
+    # fix nose bones for better deforms
     nose001 = get_bone(metarig, 'nose.001')
     noseL001 = get_bone(metarig, 'nose.L.001')
     noseL001.tail = nose001.tail.copy()
+    noseL001.roll = 6.13065
+    nose004 = get_bone(metarig,'nose.004')
+    nose004.tail = get_bone(metarig, 'lip.T.R').head.copy()
+    nose = get_bone(metarig, 'nose')
+    nose001 = get_bone(metarig, 'nose.001')
+    nose.tail = midpoint(nose.head, nose001.tail).copy()
     # fix teeth direction
     teethT = get_bone(metarig, 'teeth.T')
     teethB = get_bone(metarig, 'teeth.T')
@@ -496,7 +519,7 @@ def _snap_metarig_to_daz_rig(context):
     heel.head = heel_head_tail_pos[0]
     heel.tail = heel_head_tail_pos[1]
     # snap chin tail to lip corner
-    chinL = get_rig(metarig).edit_bones['chin.L']
+    chinL = get_bone(metarig, 'chin.L')
     lLipCorner, _, _ = hashed_fb_coordinates.get('lLipCorner').decompose()
     chinL.tail = lLipCorner.copy()
     # move lip.T.L tail to midpoint between lip.T.L head and llipCorner
@@ -528,12 +551,12 @@ def _snap_metarig_to_daz_rig(context):
     # correct pelvis bones
     rpelvis = source_bones.get('pelvis.R')
     lpelvis = source_bones.get('pelvis.L')
-    rpelvis.tail = source_bones.get('thigh.R').head
-    lpelvis.tail = source_bones.get('thigh.L').head
+    rpelvis.tail = source_bones.get('thigh.R').head.copy()
+    lpelvis.tail = source_bones.get('thigh.L').head.copy()
     rpelvis.tail.z = (spine.tail.z * 0.98)
     lpelvis.tail.z = (spine.tail.z * 0.98)
-    rpelvis.head = source_bones.get('spine').head
-    lpelvis.head = source_bones.get('spine').head
+    rpelvis.head = spine.head.copy()
+    lpelvis.head = spine.head.copy()
     shoulderL = source_bones.get('shoulder.L')
     shoulderR = source_bones.get('shoulder.R')
     breastL = get_bone(metarig, 'breast.L')
@@ -542,154 +565,75 @@ def _snap_metarig_to_daz_rig(context):
     shoulderR.parent = spine004
     breastL.parent = spine004
     breastR.parent = spine004
+    cheekBL001 = get_bone(metarig, 'cheek.B.L.001')
+    cheekTL = get_bone(metarig, 'cheek.T.L')
+    cheekTL.head = cheekBL001.tail.copy()
 
     print('drawing new bones...')
-    # draw toes
-    zipped_toe_coordinates = []
-
-    for bone in vars.toes:
-        head, tail = get_bone_head_and_tail(bone)
-        zipped_toe_coordinates.append((bone, head, tail))
-
-    set_active_object(metarig.name)
+    
+    new_bone_names = get_bones_diff(metarig, daz_rig)
+    new_bone_parents = [get_name(target_bones.get(bone).parent) for bone in new_bone_names]
+    new_bones_zipped = pack(new_bone_names, new_bone_parents)
+    
+    print('diff: ', new_bone_names)
+    new_bones = []
+    for bone in new_bone_names:
+        daz_bone = get_bone(daz_rig, bone)
+        if source_bones.get(bone) is None:
+            if daz_bone:
+                bone_name = side_to_blender_format1(bone)
+                new_bone = source_bones.new(bone_name)
+                new_bone.head = daz_bone.head.copy()
+                new_bone.tail = daz_bone.tail.copy()
+                new_bone.roll = daz_bone.roll
+                new_bone.length = daz_bone.length
+                new_bones.append(new_bone)
+    # parent new bones
     set_mode('EDIT')
-    global new_toe_bones
-    print('drawing toes...')
-    for bone, head, tail in zipped_toe_coordinates:
-        print('drawing: ', bone)
-        if source_bones.get(side_to_blender_format(bone, prefix='')) is None:
-            new_toe = source_bones.new(bone)
-            new_toe.head = head.copy()
-            new_toe.tail = tail.copy()
-            new_toe_bones.append(new_toe)
-
-    parent = 0
-    for i in range(len(new_toe_bones)):
-        bone = new_toe_bones[i]
-        print('parenting: ', bone)
-        if parent == 0:
-            if bone.name[0] == 'l':
-                bone.parent = get_rig(metarig).edit_bones['toe.L']
-            else:
-                bone.parent = get_rig(metarig).edit_bones['toe.R']
-            parent += 1
-        else:
-            bone.parent = new_toe_bones[i - 1]
-            bone.use_connect = True
-            parent = 0
-        bone.name = side_to_blender_format(bone.name, prefix='')
-
-    # draw "unlisted" bones, e.g, hair bones
-    # TODO: try getting a "diff" of the bones to grab the extra bones
-    set_active_object(daz_rig.name)
-    set_mode('EDIT')
-
-    children = get_bone(daz_rig, 'head').children_recursive
-    hair_bones = [bone.name for bone in children if bone.name not in vars.face_bones +
-                  ['lowerTeeth', 'lowerFaceRig', 'upperTeeth', 'upperFaceRig'] and '(drv)' not in bone.name]
-    hair_bone_parents = [get_updated_ebone(
-        bone).parent.name for bone in hair_bones]
-    hair_bones_parents_hashed = {bone: parent for bone,
-                                 parent in list(zip(hair_bones, hair_bone_parents))}
-    zipped_hair_coordinates = []
-    extra_bones_parents_zipped = get_extra_bones(
-        daz_rig, 'lPectoral', recursive=True) + get_extra_bones(
-        daz_rig, 'rPectoral', recursive=True) + get_extra_bones(daz_rig, 'pelvis', recursive=False, ignore_driven=True)
-    extra_bones = [bone[0] for bone in extra_bones_parents_zipped]
-
-    # print('extra bones: ', extra_bones)
-    # print('extra bones parents: ', extra_bones_parents_zipped)
-
-    for bone in hair_bones:
-        head, tail = get_bone_head_and_tail(bone)
-        zipped_hair_coordinates.append((bone, head, tail))
-
-    set_active_object(metarig.name)
-    set_mode('EDIT')
-    print('drawing hair...')
-    global new_hair_bones
-    for bone, head, tail in zipped_hair_coordinates:
-        ebone = source_bones.get(side_to_blender_format(bone, prefix=''))
-        if ebone is None:
-            new_bone = source_bones.new(bone)
-            new_bone.head = head.copy()
-            new_bone.tail = tail.copy()
-            new_hair_bones.append(new_bone)
-        else:
-            new_hair_bones.append(ebone)
-
-    for bone in hair_bones_parents_hashed.keys():
-        ebone = fetch_bone_from_list(new_hair_bones, bone)
-        if ebone:
-            parent = hair_bones_parents_hashed[bone]
-            parent_ebone = fetch_bone_from_list(new_hair_bones, parent)
-            if parent == 'head':
-                ebone.parent = source_bones.get('spine.007')
-            else:
-                ebone.parent = parent_ebone
-            ebone.name = side_to_blender_format(ebone.name, prefix='')
-
-    # draw extra bones
-    set_active_object(metarig.name)
-    set_mode('EDIT')
-    print('drawing "extra" bones...')
-    zipped_extra_coordinates = []
-
-    for bone in extra_bones:
-        head, tail = get_bone_head_and_tail(bone)
-        zipped_extra_coordinates.append((bone, head, tail))
-
-    set_mode('EDIT')
-    new_extra_bones = []
-    for bone, head, tail in zipped_extra_coordinates:
-        corrected_bone_name = side_to_blender_format(bone, prefix='')
-        if source_bones.get(corrected_bone_name) is None:
-            new_bone = source_bones.new(corrected_bone_name)
-            new_bone.head = head.copy()
-            new_bone.tail = tail.copy()
-            new_extra_bones.append(new_bone)
-        # we want the second breast bones to copy but we assume everything else is a duplicate
-        elif bone == 'lBreast' or bone == 'rBreast':
-            new_bone = source_bones.new(corrected_bone_name)
-            new_bone.head = head.copy()
-            new_bone.tail = tail.copy()
-            new_extra_bones.append(new_bone)
-
-    print('parenting extra bones..')
-    for (bone, parent) in extra_bones_parents_zipped:
-        try:
-            ebone = get_bone(metarig, side_to_blender_format(bone, prefix=''))
-            parent_ebone = get_updated_ebone(side_to_blender_format(parent, prefix=''))
-            if ebone and parent_ebone:
-                ebone.parent = parent_ebone
-        except:
-            pass
-    # manually parent new bones if they exist
-    set_active_object(metarig.name)
-    breastL001 = get_updated_ebone('breast.L.001')
-    breastR001 = get_updated_ebone('breast.R.001')
-    if breastL001 and breastR001:
-        breastL001.parent = get_bone(metarig, 'breast.L')
-        breastR001.parent = get_bone(metarig, 'breast.R')
-        set_mode('OBJECT')
-    areolaL = get_updated_ebone('areola.L')
-    areolaR = get_updated_ebone('areola.R')
-    if areolaL and areolaR:
+    set_active_object('metarig')
+    print('new bones: ', new_bones)
+    print('parents: ', new_bone_parents)
+    print('parenting bones...')
+    for bone, parent in new_bones_zipped:
+        for new_bone in new_bones:
+            if side_to_blender_format1(bone) == get_name(new_bone):
+                print('parenting: ', bone, ' to: ', parent)
+                if parent:
+                    parent_bone = get_updated_ebone(side_to_blender_format1(parent))
+                    print('parent: ', parent_bone)
+                    if parent_bone:
+                        new_bone.parent = parent_bone
+                    else:
+                        parent_bone = get_updated_ebone(side_to_blender_format1(vars.rigify_skeleton.get(parent)))
+                        if parent_bone:
+                            new_bone.parent = parent_bone
+                    
+    # manual corrections for pp bones
+    shaftRoot = get_updated_ebone('shaftRoot')
+    if shaftRoot:
+        shaftRoot.parent = spine
+        rectum = get_updated_ebone('rectum1')
+        rectum.parent = spine
+        legsCrease = get_updated_ebone('legsCrease')
+        legsCrease.parent = spine
+        shaft1 = get_updated_ebone('shaft1')
+        for child in shaft1.children_recursive:
+            child.use_connect = True
+    # manual corrections for pectorals
+    if get_updated_ebone('breast.L.001'):
+        breastL001 = get_updated_ebone('breast.L.001')
+        breastL001.parent = get_updated_ebone('breast.L')
+        breastR001 = get_updated_ebone('breast.R.001')
+        breastR001.parent = get_updated_ebone('breast.R')
+        areolaL = get_updated_ebone('areola.L')
+        areolaR = get_updated_ebone('areola.R')
         areolaL.parent = breastL001
         areolaR.parent = breastR001
-    genitals = get_updated_ebone('genitals')
-    anus = get_updated_ebone('anus')
-    spine = get_bone(metarig, 'spine')
-    if genitals:
-        genitals.parent = spine
-    if anus:
-        anus.parent = spine
     print('done.')
 
 
 def set_copy_params_def(pbone):
     pbone.rigify_type = 'basic.super_copy'
-    # print(dir(pbone.rigify_parameters))
     pbone.rigify_parameters.make_control = False
     pbone.rigify_parameters.make_deform = True
     return pbone
@@ -698,46 +642,39 @@ def set_copy_params_def(pbone):
 def set_copy_params_ctrl(pbone):
     pbone = set_copy_params_def(pbone)
     pbone.rigify_parameters.make_control = True
-    pbone.rigify_parameters.super_copy_widget_type = 'bone'
+    if pbone.name == 'breast.L' or pbone.name == 'breast.R':
+        pbone.rigify_parameters.super_copy_widget_type = 'circle'
+    else:
+        pbone.rigify_parameters.super_copy_widget_type = 'bone'
     return pbone
 
 
 def _configure_rigify_parameters(context):
     print('adding rigify properties to rig...')
-    metarig = context.selected_objects[0]
+    metarig = get_selected(context)
 
     set_active_object(metarig.name)
-
-    set_mode('EDIT')
-
+    
     print('collecting bones...')
-
-    new_toe_bones = [bone.name for bone in get_bone(metarig, 'toe.L').children_recursive] + [
-        bone.name for bone in get_bone(metarig, 'toe.R').children_recursive]
-    new_hair_bones = [bone.name for bone in get_bone(
-        metarig, 'spine.007').children_recursive if bone.name not in vars.rigify_face_bones]
-    breast_children = [bone.name for bone in get_bone(metarig, 'breast.L').children_recursive] + [
-        bone.name for bone in get_bone(metarig, 'breast.R').children_recursive]
-    bones_to_add_params = [side_to_blender_format(
-        bone[0], prefix='') for bone in get_extra_bones(metarig, 'spine.004', ignore_driven=False)] + [side_to_blender_format(
-            bone[0], prefix='') for bone in get_extra_bones(metarig, 'spine', ignore_driven=False)] + breast_children + new_toe_bones + new_hair_bones
 
     set_mode('POSE')
     print('adding properties...')
+    bones1 = list(invert(deepcopy(vars.rigify_skeleton)).keys()) + vars.rigify_face_bones + ['shaft1', 'shaft2', 'shaft3', 'shaft4', 'shaft5', 'shaft6', 'shaft7'] + ['heel.02.L', 'heel.02.R']
+    bones2 = [bone.name for bone in metarig.pose.bones]
+    bones_to_add_params = diff(bones2, bones1)
+    
+    print('bones to add rigify params: ', bones_to_add_params)
 
     for bone in bones_to_add_params:
         pbone = get_pbone(metarig, bone)
-        print('adding ctrl copy params @: ', pbone.name)
-        set_copy_params_ctrl(pbone)
-    for bone in ['teeth.T', 'teeth.B', 'eye.L', 'eye.R']:
+        if pbone.name != 'face':
+            print('adding ctrl copy params @: ', pbone.name)
+            set_copy_params_ctrl(pbone)
+    for bone in ['hip', 'legsCrease', 'pelvis.R', 'pelvis.L', 'shaftRoot']:
         pbone = get_pbone(metarig, bone)
-        print('adding def copy params @: ', pbone.name)
-        set_copy_params_def(pbone)
-    for bone in vars.rigify_face_bones:
-        if 'glue' in bone:
-            pbone = get_pbone(metarig, bone)
-            print('adding glue params @: ', pbone.name)
-            pbone.rigify_type = 'skin.glue'
+        if pbone:
+            print('adding def copy params @: ', pbone.name)
+            set_copy_params_def(pbone)
 
     print('adding params to arms...')
     # fix arms and fingers
@@ -748,25 +685,51 @@ def _configure_rigify_parameters(context):
     # find ideal rotation axis for thumbs
     upper_armL.rigify_parameters.rotation_axis = 'x'
     upper_armR.rigify_parameters.rotation_axis = 'x'
+    
+    thighL = get_pbone(metarig, 'thigh.L')
+    thighR = get_pbone(metarig, 'thigh.R')
+    thighL.rigify_parameters.rotation_axis = 'x'
+    thighR.rigify_parameters.rotation_axis = 'x'
+
 
     print('adding params to fingers...')
     for finger in vars.fingers:
         bone = get_pbone(metarig, finger)
         bone.rigify_parameters.primary_rotation_axis = 'X'
         bone.rigify_parameters.make_extra_ik_control = True
+    
+    if get_pbone(metarig, 'shaftRoot'):
+        shaft1 = get_pbone(metarig, 'shaft1')
+        shaft1.rigify_type = 'limbs.spline_tentacle'
+        shaft1.rigify_parameters.sik_stretch_control = 'MANUAL_STRETCH'
+        
+        shaftRoot = get_pbone(metarig, 'shaftRoot')
+        set_copy_params_ctrl(shaftRoot)
+        
+        legsCrease = get_pbone(metarig, 'legsCrease')
+        set_copy_params_ctrl(legsCrease)
+        
+        scrotum = get_pbone(metarig, 'scrotum')
+        set_copy_params_ctrl(scrotum)
+        for child in scrotum.children:
+            set_copy_params_ctrl(child)
+        for bone in ['rectum1', 'rectum2', 'colon']:
+            pbone = get_pbone(metarig, bone)
+            set_copy_params_ctrl(pbone)
+        
     print('done.')
 
 
 def _daz_vertex_groups_to_rigify(mesh):
-    rigify_skeleton = open_normalized_path(
+    rigify_skeleton = open_json(
         './data/daz_to_rigify.json', invert_keys=True)
-    hand_group2 = open_normalized_path('./data/hand_group2.json', invert_keys=True)
-    rigify_skeleton = merge(rigify_skeleton, hand_group2)
+    hand_group2 = open_json('./data/hand_group2.json', invert_keys=True)
+    rigify_skeleton = remove_right_bones(merge(rigify_skeleton, hand_group2))
 
     for vg in mesh.vertex_groups:
         for group in rigify_skeleton.keys():
             replace(mesh, group, vg,
-                    rigify_skeleton, prefix='DEF-')
+                    rigify_skeleton, prefix='DEF-', mirror=True)
     for vg in mesh.vertex_groups:
         if 'MASK-' not in vg.name and 'DEF-' not in vg.name and vg.name != 'Graft':
             vg.name = 'DEF-' + \
@@ -774,15 +737,18 @@ def _daz_vertex_groups_to_rigify(mesh):
 
 
 def _generate_rig(metarig):
+    deselect_all()
+    select(metarig.name)
     set_active_object(metarig.name)
     bpy.ops.pose.rigify_generate()
     
 
 
-def find_rig(selected):
+def find_rigify_rig(selected):
     for obj in selected:
         if obj.type == 'ARMATURE':
-            return obj
+            if obj.get('rig_ui'):
+                return obj
 
 
 def find_mesh(selected):
@@ -793,7 +759,7 @@ def find_mesh(selected):
 
 def _parent_mesh(selected):
     sel = list(selected)
-    rig = find_rig(selected)
+    rig = find_rigify_rig(selected)
     sel.remove(rig)
     for mesh in sel:
         mesh.parent = rig
@@ -806,30 +772,9 @@ def _parent_children(context):
     daz_rig = get_daz_rig(context)
     rigify_rig = get_rigify_rig(context)
 
-    if len(daz_rig.children) != 0:
-        for child in daz_rig.children:
-            child.parent = rigify_rig
-    else:
-        children = collect_geografts()
-        for child in children:
-            child.parent = rigify_rig
-
-
-def _fix_centerline_bones(context):
-    set_mode('EDIT')
-    metarig = bpy.data.objects['metarig']
-    for bone in vars.centerline_bones:
-        if bone not in vars.head_centerline_bones + vars.tail_centerline_bones:
-            ebone = get_bone(metarig, bone)
-            ebone.tail.x = 0
-            ebone.head.x = 0
-        elif bone in vars.head_centerline_bones:
-            ebone = get_bone(metarig, bone)
-            ebone.head.x = 0
-        elif bone in vars.tail_centerline_bones:
-            ebone = get_bone(metarig, bone)
-            ebone.tail.x = 0
-    set_mode('OBJECT')
+    for child in daz_rig.children:
+        child.parent = rigify_rig
+            
 
 # broken
 def collect_geografts():
@@ -840,11 +785,61 @@ def collect_geografts():
             geografts.append(mesh)
     return geografts
 
+def fix_display_bones(rig):
+    rig.pose.bones["head"].custom_shape_scale_xyz[0] = 5
+    rig.pose.bones["head"].custom_shape_scale_xyz[1] = 5
+    rig.pose.bones["head"].custom_shape_scale_xyz[2] = 5
+    rig.pose.bones["breast.L"].custom_shape_scale_xyz[0] = 0.6
+    rig.pose.bones["breast.L"].custom_shape_scale_xyz[1] = 0.6
+    rig.pose.bones["breast.L"].custom_shape_scale_xyz[2] = 0.6
+    rig.pose.bones["breast.R"].custom_shape_scale_xyz[0] = 0.6
+    rig.pose.bones["breast.R"].custom_shape_scale_xyz[1] = 0.6
+    rig.pose.bones["breast.R"].custom_shape_scale_xyz[2] = 0.6
+    rig.pose.bones["breast.L"].custom_shape_translation[1] = 0.1
+    rig.pose.bones["breast.R"].custom_shape_translation[1] = 0.1
 
+@Operator(module='Serialization')
+def serialize_rigify_params(self, context):
+    metarig = get_selected(context)
+    rigify_json = adict()
+    for pbone in metarig.pose.bones:
+        rigify_params_json = adict()
+        rigify_attrs = [key for key in pbone.keys() if 'rigify' in key]
+        for key in rigify_attrs:
+            if type(pbone[key]) is idprop.types.IDPropertyGroup:
+                rigify_params_json[key] = pbone[key].to_dict()
+            else:
+                rigify_params_json[key] = pbone[key]
+        rigify_json[pbone.name] = rigify_params_json
+    serialized_params = encode(rigify_json.to_dict())
+    print('\n')
+    print('decode: ', decode(serialized_params))
+    filepath = 'metarig_rigify_parameters.json'
+    if bpy.data.texts.get(filepath):
+        text = bpy.data.texts.get(filepath)
+        text.write(serialized_params)
+    else:
+        text = bpy.data.texts.new(filepath)
+        text.write(serialized_params)
+    
+
+@Operator(module='Serialization')
+def deserialize_rigify_parameters(self, context):
+    metarig = get_selected(context)
+    filepath = 'metarig_rigify_parameters.json'
+    rigify_params = decode(bpy.data.texts.get(filepath).as_string())
+    for bone in rigify_params.keys():
+        for pbone in list(metarig.pose.bones):
+            if pbone.name == bone:
+                for key in rigify_params[bone].keys():
+                    pbone[key] = rigify_params[bone][key]
+                print('bone params: ', pbone.rigify_parameters)
+            
+        
 def _process_rigs1(self, context):
     # setup vars
     print('setting up...')
-    metarig = get_other_rig(context)
+    metarig = get_metarig(context)
 
     # bake morphs
     # print('baking morphs...')
@@ -861,26 +856,33 @@ def _process_rigs1(self, context):
     _snap_metarig_to_daz_rig(context)
     print('copying rotation orders...')
     _copy_rotation_order(self, context)
-    bpy.ops.pose.rigify_upgrade_face()
+    print(face_is_upgraded(metarig))
+    if face_is_upgraded(metarig) == False:
+        set_mode('OBJECT')
+        set_active_object(metarig.name)
+        bpy.ops.pose.rigify_upgrade_face()
     print('copying bone rolls...')
     select(metarig.name)
     _copy_bone_rolls(context)
     _configure_rigify_parameters(context)
     print('generating rig...')
+    set_mode('OBJECT')
     _generate_rig(metarig)
     select('rig')
 
 
 def _process_rigs2(context):
-    daz_rig = get_daz_rig(context)
+    daz_rig = find_daz_rig()
     daz_mesh = get_mesh(daz_rig)
 
     rig = bpy.data.objects['rig']
+    select(daz_rig.name)
+    select(rig.name)
     set_active_object(rig.name)
     print('reparenting meshes...')
     _parent_children(context)
-    daz_rig.select_set(True)
-    rig.select_set(True)
+    select(rig.name)
+    select(daz_rig.name)
     # copy properties and drivers
     print('copying properties and drivers...')
     _copy_properties(context)
@@ -924,8 +926,13 @@ def _process_rigs3(context):
     set_active_object(daz_mesh.name)
     bpy.ops.daz.merge_geografts()
     print('converting weights...')
+    select(daz_mesh.name)
+    set_mode('OBJECT')
     _daz_vertex_groups_to_rigify(daz_mesh)
+    deselect_all()
+    select(daz_mesh.name)
     _merge_weights(context)
+    fix_display_bones(rig)
     print('done.')
 
 
@@ -938,8 +945,6 @@ def merge_geografts(self, context):
     for graft in geografts:
         select(graft.name)
     set_active_object(mesh.name)
-    # override = context.copy()
-    # with context.temp_override(**override):
     bpy.ops.daz.merge_geografts()
 
 
@@ -961,26 +966,30 @@ def process_rig(self, context):
     _process_rigs3(context)
 
 
-@Operator(module='Test')
+# @Operator(module='Test')
 def process_rig1(self, context):
     _process_rigs2(context)
     _process_rigs3(context)
 
 
-@Operator(module='Test')
+# @Operator(module='Test')
 def process_rig2(self, context):
     _process_rigs3(context)
 
 
-@Operator(module='Test')
-def fix_centerline_bones(self, context):
-    _fix_centerline_bones(context)
+# @Operator(module='Test')
+# def fix_centerline_bones(self, context):
+#     _fix_centerline_bones(context)
     
 
 @Operator(label='Merge Weights')
 def omerge_weights(self, context):
     _merge_weights(context)
 
+
+def is_metarig(context):
+    obj = context.selected_objects[0]
+    return hasattr(obj, 'rig_ui')
 
 @Operator()
 def generate_rig(self, context):

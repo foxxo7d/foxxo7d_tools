@@ -1,30 +1,33 @@
 import bpy
 import os
+import import_daz
 from bpy_extras.io_utils import ImportHelper
-from copy import deepcopy
 from . import utils
 from .decorators import operators
-from .misc import import_model
+
 
 class OpenFileBrowser(bpy.types.Operator, ImportHelper):
     bl_idname = "foxxo.open_file_browser"
     bl_label = "Browse"
-    
+
+    directory = bpy.props.StringProperty(
+        name="'filearchives' folder", subtype="DIR_PATH", options={'HIDDEN'})
+
+    filter_folder = bpy.props.BoolProperty(default=True, options={'HIDDEN'})
+
     filter_glob: bpy.props.StringProperty(
-        default='*.duf',
+        default='',
         options={'HIDDEN'}
     )
 
     def execute(self, context):
         """Do something with the selected file(s)."""
 
-        filename,_ = os.path.splitext(self.filepath)
-        
-        print('Selected file:', self.filepath)
-        print('File name:', filename)
-        context.scene.foxxo_properties.scene = self.filepath
-        import_model(self, context)
-        
+        filename, _ = os.path.splitext(self.directory)
+
+        print('Selected file:', self.directory)
+        context.scene.foxxo_properties.filepath = self.directory
+        import_daz.set_selection(self.directory)
         return {'FINISHED'}
 
 
@@ -34,11 +37,12 @@ def morph_options(self, context):
         obj = obj.find_armature()
     if hasattr(obj, 'DazMorphCats'):
         morphCats = [cat for cat in list(obj.DazMorphCats.items())]
-        enum = [(cat[1].name, cat[0].replace(' ', '_').upper(), '', idx) for (idx, cat) in enumerate(morphCats)]
+        enum = [(cat[1].name, cat[0].replace(' ', '_').upper(), '', idx)
+                for (idx, cat) in enumerate(morphCats)]
         return enum
     else:
         return [('No_Morphs_Detected', 'No Morphs Detected', '', 0)]
-    
+
 
 class Settings(bpy.types.PropertyGroup):
     ignore_nodes: bpy.props.BoolProperty(
@@ -52,12 +56,13 @@ class Settings(bpy.types.PropertyGroup):
         description="Don't check if a merging material's texture files are the same",
         default=False
     )
-    
+
     obj_morphs: bpy.props.EnumProperty(items=morph_options)
-    
-    morphs_path: bpy.props.StringProperty(subtype='FILE_PATH')
-    
+
+    filepath: bpy.props.StringProperty(subtype='FILE_PATH')
+
     scene: bpy.props.StringProperty(subtype='FILE_PATH')
+
 
 class View3DPanel:
     bl_space_type = 'VIEW_3D'
@@ -71,6 +76,8 @@ class View3DPanel:
             class_name = self.bl_alias
         for operator in operators[class_name]:
             layout.operator(operator['bl_idname'], text=operator['bl_label'])
+            # if operator['bl_disabled']:
+            #     layout.enabled = not operator['bl_disabled'](context)
 
     @classmethod
     def execute(self, context):
@@ -99,6 +106,14 @@ class Nodes(View3DPanel, bpy.types.Panel):
         self.render()
 
 
+class Valorant(View3DPanel, bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_Valorant_Panel"
+    bl_label = "Valorant"
+
+    def draw(self, context):
+        self.render()
+
+
 class Drivers(View3DPanel, bpy.types.Panel):
     bl_idname = "VIEW3D_PT_Drivers_Panel"
     bl_label = "Drivers"
@@ -110,6 +125,14 @@ class Drivers(View3DPanel, bpy.types.Panel):
 class Bones(View3DPanel, bpy.types.Panel):
     bl_idname = "VIEW3D_PT_Bones_Panel"
     bl_label = "Bones"
+
+    def draw(self, context):
+        self.render()
+
+
+class Serialization(View3DPanel, bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_Bones_Panel"
+    bl_label = "Serialization"
 
     def draw(self, context):
         self.render()
@@ -283,7 +306,6 @@ class Properties(View3DPanel, bpy.types.Panel):
 #         self.render()
 
 
-
 # class Options(View3DPanel, bpy.types.Panel):
 #     bl_idname = "VIEW3D_PT_options_panel"
 #     bl_label = "Options"
@@ -312,6 +334,7 @@ class Test(View3DPanel, bpy.types.Panel):
         layout.operator('daz.easy_import_daz', text="Import Scene")
         self.render()
 
+
 class Rigging(View3DPanel, bpy.types.Panel):
     bl_idname = "VIEW3D_PT_rigging_panel"
     bl_label = "Rigging"
@@ -329,6 +352,7 @@ class Rigging(View3DPanel, bpy.types.Panel):
 
 def register():
     bpy.types.Scene.foxxo_properties = bpy.props.PointerProperty(type=Settings)
+
 
 def unregister():
     del bpy.types.Scene.foxxo_properties

@@ -53,6 +53,8 @@ hand_group2 = invert({
     "lCarpal4": "palm.04.L",
 })
 
+hand_group3 = invert(hand_group2)
+
 six_bone_spine = invert({
     "spine": "pelvis",
     "spine.001": "abdomenLower",
@@ -63,7 +65,6 @@ six_bone_spine = invert({
     "spine.006": "head"
 })
 
-# TODO: move all this shit to a var file
 left_eyelid = ['lid.T.L', 'lid.T.L.001', 'lid.T.L.002', 'lid.T.L.003',
                'lid.B.L', 'lid.B.L.001', 'lid.B.L.002', 'lid.B.L.003']
 left_eyelid_indices = [2367, 706, 713, 788, 1681, 677, 1672, 1675]
@@ -155,6 +156,46 @@ genesis_altnames = invert({
 })
 
 rigify_skeleton = invert({
+    "teeth.T": "upperTeeth",
+    "teeth.B": "lowerTeeth",
+    "tongue.002": "tongue01",
+    "tongue.001": "tongue02",
+    "tongue": "tongue03",
+    "cheek.T.L": "lSquintOuter",
+    "cheek.T.L.001": "lSquintInner",
+    "cheek.B.L.001": "lCheekUpper",
+    "cheek.B.L": "lNasolabialMouthCorner",
+    "chin": "Chin",
+    "chin.001": "LipBelow",
+    "jaw": "BelowJaw",
+    "chin.L": "lNasolabialLower",
+    "jaw.L": "lJawClench",
+    "brow.T.L.003": "lBrowInner",
+    "brow.T.L.002": "lBrowMid",
+    "brow.T.L.001": "lBrowOuter",
+    "nose": "MidNoseBridge",
+    "lid.T.L.003": "lEyelidUpperInner",
+    "lid.T.L.002": "lEyelidUpper",
+    "lid.T.L.001": "lEyelidUpperOuter",
+    "lid.T.L": "lEyelidOuter",
+    "nose.001": "Nose",
+    "nose.L.001": "lLipBelowNose",
+    "nose.L": "lNostril",
+    "nose.004": "LipUpperMiddle",
+    "eye.L": "lEye",
+    "ear.L": "lEar",
+    "lip.B.L.001": "lLipLowerOuter",
+    "lip.B.L": "lLipLowerInner",
+    "lip.T.L.001": "lLipUpperOuter",
+    "lip.T.L": "lLipUpperInner",
+
+    "forehead.L": "lCenterBrow",
+    "forehead.R": "rCenterBrow",
+    "lid.B.L.003": "lEyelidLowerOuter",
+    "lid.B.L.002": "lEyelidLower",
+    "lid.B.L.001": "lEyelidLowerInner",
+    "lid.B.L": "lEyelidInner",
+
     "thumb.01.L":       "lThumb1",
     "thumb.02.L":       "lThumb2",
     "thumb.03.L":       "lThumb3",
@@ -239,3 +280,36 @@ centerline_bones = ['nose', 'nose.001', 'nose.002', 'nose.003', 'nose.004', 'lip
 tail_centerline_bones = ['nose.L.001', 'nose.R.001']
 
 head_centerline_bones = ['lip.T.L', 'lip.B.L', 'lip.T.R', 'lip.B.R']
+
+valorig_bones = {'shoulder.R': 'R_Clavicle', 'shoulder.L': 'L_Clavicle', 'spine': 'Pelvis', 'spine.001': 'Spine1', 'spine.002': 'Spine2', 'spine.003': 'Spine3', 'spine.004': 'Spine4', 'spine.005': 'Neck', 'spine.006': 'Head', 'upper_arm.R': 'R_Shoulder', 'forearm.R': 'R_Elbow', 'hand.R': 'R_Hand', 'f_pinky.01.R': 'R_Pinky1', 'f_pinky.02.R': 'R_Pinky2', 'f_pinky.03.R': 'R_Pinky3', 'f_index.01.R': 'R_Index1', 'f_index.02.R': 'R_Index2', 'f_index.03.R': 'R_Index3', 'f_ring.01.R': 'R_Ring1', 'f_ring.02.R': 'R_Ring2', 'f_ring.03.R': 'R_Ring3', 'thumb.01.R': 'R_Thumb1', 'thumb.02.R': 'R_Thumb2', 'thumb.03.R': 'R_Thumb3', 'f_middle.01.R': 'R_Middle1', 'f_middle.02.R': 'R_Middle2', 'f_middle.03.R': 'R_Middle3', 'palm.01.R': 'R_Index0', 'palm.02.R': 'R_Ring0', 'palm.03.R': 'R_Pinky0',
+                 'palm.04.R': 'R_Middle0', 'thigh.R': 'R_Hip', 'shin.R': 'R_Knee', 'foot.R': 'R_Foot', 'toe.R': 'R_Toe', 'upper_arm.L': 'L_Shoulder', 'forearm.L': 'L_Elbow', 'hand.L': 'L_Hand', 'f_pinky.01.L': 'L_Pinky1', 'f_pinky.02.L': 'L_Pinky2', 'f_pinky.03.L': 'L_Pinky3', 'f_index.01.L': 'L_Index1', 'f_index.02.L': 'L_Index2', 'f_index.03.L': 'L_Index3', 'f_ring.01.L': 'L_Ring1', 'f_ring.02.L': 'L_Ring2', 'f_ring.03.L': 'L_Ring3', 'thumb.01.L': 'L_Thumb1', 'thumb.02.L': 'L_Thumb2', 'thumb.03.L': 'L_Thumb3', 'f_middle.01.L': 'L_Middle1', 'f_middle.02.L': 'L_Middle2', 'f_middle.03.L': 'L_Middle3', 'palm.01.L': 'L_Index0', 'palm.02.L': 'L_Ring0', 'palm.03.L': 'L_Pinky0', 'palm.04.L': 'L_Middle0', 'thigh.L': 'L_Hip', 'shin.L': 'L_Knee', 'foot.L': 'L_Foot', 'toe.L': 'L_Toe'}
+
+autorig_merge_weights = (
+    ('c_eyebrow_01_end.r', 'CenterBrow', 'ADD'),
+    ('c_eyebrow_01_end.l', 'CenterBrow', 'ADD'),
+    ('jawbone.x', 'BelowJaw', 'ADD'),
+    ('c_cheek_inflate.l', 'lCheekLower', 'ADD'),
+    ('c_cheek_inflate.r', 'rCheekLower', 'ADD'),
+    ('c_cheek_inflate.l', 'lJawClench', 'ADD'),
+    ('c_cheek_inflate.r', 'rJawClench', 'ADD'),
+    ('c_breast_01.l', 'lBreast', 'ADD'),
+    ('c_breast_01.r', 'rBreast', 'ADD'),
+    ('c_breast_01.l', 'lAreola', 'ADD'),
+    ('c_breast_01.r', 'rAreola', 'ADD'),
+    ('c_breast_01.l', 'lNipple', 'ADD'),
+    ('c_breast_01.r', 'rNipple', 'ADD'),
+    ('c_nose_02.x', 'lNostril', 'ADD'),
+    ('c_nose_02.x', 'rNostril', 'ADD'),
+    ('head.x', 'upperFaceRig', 'ADD'),
+    ('head.x', 'lowerFaceRig', 'ADD'),
+    ('tong_03.x', 'tongue04"', 'ADD'),
+    ('foot.l', 'lMetatarsals"', 'ADD'),
+    ('foot.r', 'rMetatarsals"', 'ADD')
+)
+
+rigify_merge_weights = (('DEF-foot.L', 'DEF-metatarsals.L', 'ADD'),
+                        ('DEF-foot.R', 'DEF-metatarsals.R', 'ADD'),
+                        ('DEF-tongue.002', 'DEF-tongue04', 'ADD'),
+                        ('DEF-brow.T.R.003', 'DEF-centerBrow', 'AVG'),
+                        ('DEF-brow.T.L.003', 'DEF-centerBrow', 'AVG'),
+                        ('DEF-jaw', 'DEF-lowerJaw', 'ADD'))

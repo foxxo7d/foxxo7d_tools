@@ -1,7 +1,7 @@
 import bpy
 import re
 from .vars import hand_group, face_bones2
-from .utils import get_rig, identify_rig, is_rigify, is_autorig, invert, open_normalized_path, get_other_rig, set_mode
+from .utils import get_rig, identify_rig, is_rigify, is_autorig, invert, open_json, get_other_rig, set_mode
 from .decorators import Operator
 
 
@@ -86,16 +86,16 @@ def change_bone_roll(rig, bone_rolls, skeleton, rigify=False):
     for pbone in bones:
         dereference(pbone, skeleton)
         if rigify:
-            org_bones = open_normalized_path('./data/daz_to_rigify.json')
+            org_bones = open_json('./data/daz_to_rigify.json')
             dereference(pbone, org_bones, prefix='ORG-')
             dereference(pbone, org_bones, prefix='DEF-')
             dereference(pbone, org_bones, prefix='MCH-')
 
 
 def change_rotation_mode(rig, skeleton, rigify=False, autorig=False):
-    rotation_orders = open_normalized_path(
+    rotation_orders = open_json(
         './data/genesis8_rotation_orders.json')
-    daz_rotmodes = open_normalized_path('./data/genesis8_DazRotMode.json')
+    daz_rotmodes = open_json('./data/genesis8_DazRotMode.json')
     bones = list(rig.pose.bones)
 
     def dereference(pbone, prefix=None):
@@ -118,7 +118,7 @@ def change_rotation_mode(rig, skeleton, rigify=False, autorig=False):
     for pbone in bones:
         dereference(pbone)
         # if rigify:
-        #     org_bones = open_normalized_path('./data/daz_to_rigify.json')
+        #     org_bones = open_json('./data/daz_to_rigify.json')
         #     dereference(pbone, org_bones, prefix='ORG-')
         #     dereference(pbone, org_bones, prefix='DEF-')
         #     dereference(pbone, org_bones, prefix='MCH-')
@@ -134,10 +134,10 @@ def _copy_rotation_order(self, context):
         
     print('target rig: ', rig)
     skeleton = {
-        'rigify': open_normalized_path('./data/genesis8_to_rigify2.json', invert_keys=True),
-        'metarig': open_normalized_path('./data/daz_to_rigify.json'),
-        'autorig': open_normalized_path('./data/genesis3-autorig.json', invert_keys=True),
-        'metsrig': open_normalized_path('./data/genesis3-metsrig.json', invert_keys=True),
+        'rigify': open_json('./data/genesis8_to_rigify2.json', invert_keys=True),
+        'metarig': open_json('./data/daz_to_rigify.json'),
+        'autorig': open_json('./data/genesis3-autorig.json', invert_keys=True),
+        'metsrig': open_json('./data/genesis3-metsrig.json', invert_keys=True),
         'unknown': None
     }[identify_rig(rig)]
 
@@ -154,12 +154,12 @@ def _copy_bone_rolls(context):
         rig = context.selected_objects[0]
     except:
         rig = bpy.data.objects['metarig']
-    bone_rolls = open_normalized_path('./data/genesis8_bone_rolls.json')
+    bone_rolls = open_json('./data/genesis8_bone_rolls.json')
     skeleton = {
-        'rigify': open_normalized_path('./data/genesis8_to_rigify2.json', invert_keys=True),
-        'metarig': open_normalized_path('./data/daz_to_rigify.json'),
-        'autorig': open_normalized_path('./data/daz_to_autorigref.json'),
-        'metsrig': open_normalized_path('./data/genesis3-autorig.json', invert_keys=True),
+        'rigify': open_json('./data/genesis8_to_rigify2.json', invert_keys=True),
+        'metarig': open_json('./data/daz_to_rigify.json'),
+        'autorig': open_json('./data/daz_to_autorigref.json'),
+        'metsrig': open_json('./data/genesis3-autorig.json', invert_keys=True),
         'unknown': None
     }[identify_rig(rig)]
 
@@ -191,7 +191,7 @@ def connect_bone_chain(self, context):
 
 @Operator(label='Remove Driven Bones')
 def remove_drv_bones(self, context):
-    parents = open_normalized_path('./data/genesis8_parents.json')['parents']
+    parents = open_json('./data/genesis8_parents.json')['parents']
     bpy.ops.object.mode_set(mode='EDIT')
 
     bones = context.editable_bones

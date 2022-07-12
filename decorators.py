@@ -1,5 +1,5 @@
 import bpy
-from .libs.easydict import EasyDict as edict
+from .libs.addict import Dict as edict
 import inspect
 from functools import wraps
 from .utils import snake_case
@@ -29,13 +29,14 @@ def Operator(module=None, label='', props=dict()):
 
         caller = inspect.currentframe().f_back
         register = module or caller.f_globals['__name__'].split('.')[1].capitalize()
-        op_info = {
+        op_info = [{
                 'bl_idname': operator.bl_idname,
-                'bl_label': operator.bl_label
-            }
+                'bl_label': operator.bl_label,
+                # 'bl_disabled': disabled
+            }]
         if hasattr(operators, register):
-            operators[register].append(op_info)
+            operators[register] = operators[register] + op_info
         else:
-            operators[register] = [op_info]
+            operators[register] = op_info
         return operator
     return decorator
